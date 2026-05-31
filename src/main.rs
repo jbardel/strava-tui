@@ -2,6 +2,7 @@ mod app;
 mod auth;
 mod strava;
 mod ui;
+mod meteo;
 
 use anyhow::Result;
 use app::{App, Screen};
