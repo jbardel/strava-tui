@@ -1,4 +1,4 @@
-use crate::strava::{build_client, post_form_json, TokenResponse};
+use crate::activities::{build_client, post_form_json, TokenResponse};
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
@@ -69,7 +69,7 @@ impl Config {
         }
         if let Some(rt) = self.refresh_token.clone() {
             eprintln!("Rafraîchissement du token Strava...");
-            let token = crate::strava::StravaClient::refresh_token(
+            let token = crate::activities::StravaClient::refresh_token(
                 &self.client_id,
                 &self.client_secret,
                 &rt,

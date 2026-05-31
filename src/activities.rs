@@ -1,5 +1,5 @@
-use anyhow::{anyhow, Result};
-use chrono::{DateTime, Utc};
+use anyhow::{Result, anyhow};
+use chrono::{DateTime, Local, Utc};
 use hyper::{Body, Client, Request};
 use hyper_rustls::HttpsConnectorBuilder;
 use serde::{Deserialize, Serialize};
@@ -31,7 +31,7 @@ async fn http_get_json<T: serde::de::DeserializeOwned>(
     let bytes = hyper::body::to_bytes(resp.into_body()).await?;
     if !status.is_success() {
         let body = String::from_utf8_lossy(&bytes);
-        return Err(anyhow!("Erreur API Strava {}: {}", status, body));
+        return Err(anyhow!("Erreur appel URL {}: {}", status, body));
     }
     Ok(serde_json::from_slice(&bytes)?)
 }
@@ -163,7 +163,9 @@ impl StravaClient {
             "https://www.strava.com/api/v3/athlete/activities?page={}&per_page={}",
             page, per_page
         );
-        http_get_json(&self.client, &url, &self.access_token).await
+        let activities = http_get_json(&self.client, &url, &self.access_token).await;
+
+        return activities;
     }
 
     pub async fn refresh_token(
@@ -189,4 +191,86 @@ fn url_encode(s: &str) -> String {
             _ => format!("%{:02X}", c as u32),
         })
         .collect()
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct WeatherResult {
+    elevation: f32,
+    latitude: f32,
+    longitude: f32,
+    hourly_units: Units,
+    hourly: TemperatureData,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TemperatureData {
+    weather_code: Vec<u8>,
+    temperature_2m: Vec<f32>,
+    time: Vec<String>,
+    wind_speed_10m: Vec<f32>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Units {
+    time: String,
+    weather_code: String,
+    temperature_2m: String,
+    wind_speed_10m: String,
+}
+
+pub struct WeatherClient {
+    client: HttpsClient,
+}
+
+pub struct Coords {
+    pub lat: f32,
+    pub lng: f32,
+}
+
+impl WeatherClient {
+    pub fn new() -> Self {
+        Self {
+            client: build_client(),
+        }
+    }
+
+    pub async fn get_weather(
+        &self,
+        coords: Coords,
+        datetime: DateTime<Local>,
+    ) -> Result<WeatherResult> {
+        let url = format!(
+            "https://archive-api.open-meteo.com/v1/archive?latitude={lat}&longitude={lng}&start_date={date}&end_date={date}&hourly=weather_code,temperature_2m,wind_speed_10m",
+            lat = coords.lat,
+            lng = coords.lng,
+            date = datetime
+        );
+
+        http_get_json(&self.client, &url, "").await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{Local, TimeZone};
+
+    use crate::activities::{Coords, WeatherClient};
+
+    #[tokio::test]
+    async fn test_weather() {
+        let weather_client = WeatherClient::new();
+
+        // 43.493204146990244, 6.534099590754949
+        let coords = Coords {
+            lat: 43.493204146990244,
+            lng: 6.534099590754949,
+        };
+
+        let datetime = Local.with_ymd_and_hms(2026, 5, 31, 9, 30, 00).unwrap();
+        let val = weather_client
+            .get_weather(coords, datetime)
+            .await
+            .expect("get_current_weather failed");
+        println!("{:?}", val);
+    }
 }

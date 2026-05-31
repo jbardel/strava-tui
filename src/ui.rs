@@ -25,7 +25,8 @@ const BG2: Color = Color::Rgb(25, 25, 35);
 const BG3: Color = Color::Rgb(35, 35, 50);
 
 pub fn render(f: &mut Frame, app: &App) {
-    let size = f.size();
+
+    let size = f.area();
 
     // Background global
     f.render_widget(Block::default().style(Style::default().bg(BG)), size);
@@ -329,13 +330,13 @@ fn render_quick_detail(f: &mut Frame, app: &App, area: Rect) {
             ),
             Line::from(""),
             stat_line("📏 Distance", format!("{:.2} km", a.distance_km())),
-            stat_line("⏱️  Durée", a.duration_formatted()),
+            stat_line("⏱️ Durée", a.duration_formatted()),
             stat_line("⚡ Allure moy.", a.pace_per_km()),
             stat_line("🚀 Vitesse max", format!("{:.1} km/h", a.max_speed * 3.6)),
             Line::from(""),
-            stat_line("⛰️  Dénivelé", format!("{:.0} m", a.total_elevation_gain)),
+            stat_line("⛰️ Dénivelé", format!("{:.0} m", a.total_elevation_gain)),
             Line::from(""),
-            stat_line("❤️  FC moy.", hr_str),
+            stat_line("❤️ FC moy.", hr_str),
             stat_line("💥 FC max", max_hr_str),
             stat_line("😓 Suffer score", suffer),
             Line::from(""),
@@ -450,6 +451,10 @@ fn render_detail(f: &mut Frame, app: &App, area: Rect) {
             section_title("🏅 Social"),
             stat_line("Kudos", format!("{}", a.kudos_count)),
             stat_line("Achievements", format!("{}", a.achievement_count)),
+            Line::from(""),
+            section_title("🌅 Météo"),
+            stat_line("Température", format!("{}", 123)),
+            // stat_line("Vent", format!("{}", a.wind)),
         ];
 
         let left_para = Paragraph::new(left).wrap(Wrap { trim: false });

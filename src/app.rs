@@ -1,4 +1,4 @@
-use crate::strava::Activity;
+use crate::activities::Activity;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Screen {

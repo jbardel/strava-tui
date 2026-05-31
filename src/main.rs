@@ -1,35 +1,63 @@
+mod activities;
 mod app;
 mod auth;
-mod strava;
 mod ui;
 
+use activities::StravaClient;
 use anyhow::Result;
 use app::{App, Screen};
 use auth::Config;
+use chrono::{Local, TimeZone};
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
+    },
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{
     io,
     sync::{Arc, Mutex},
     time::Duration,
 };
-use strava::StravaClient;
 use tokio::sync::mpsc;
+use tracing_appender::rolling;
+use tracing_subscriber::{EnvFilter, fmt};
+
+use crate::activities::{Coords, WeatherClient};
 
 #[derive(Debug)]
 enum AppMessage {
-    ActivitiesLoaded(Vec<strava::Activity>),
-    ActivitiesAppended(Vec<strava::Activity>),
+    ActivitiesLoaded(Vec<activities::Activity>),
+    ActivitiesAppended(Vec<activities::Activity>),
+    WeatherLoaded(),
     Error(String),
     StatusMsg(String),
 }
 
+fn init_logger() -> tracing_appender::non_blocking::WorkerGuard {
+    // rotation journalière dans ./logs/app.log.YYYY-MM-DD
+    let file_appender = rolling::daily("logs", "app.log");
+
+    // évite les blocages (buffer + thread dédié)
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
+    fmt()
+        .with_env_filter(filter)
+        .with_writer(non_blocking)
+        .with_ansi(false) // important pour fichier
+        .init();
+
+    guard
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    let _guard = init_logger();
+
     let mut config = match Config::from_env() {
         Ok(c) => c,
         Err(e) => {
@@ -49,12 +77,12 @@ async fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
     terminal.clear()?;
 
-    let app = Arc::new(Mutex::new(App::new()));
+    let app: Arc<Mutex<App>> = Arc::new(Mutex::new(App::new()));
     let (tx, mut rx) = mpsc::channel::<AppMessage>(32);
 
     // Auth (hors mode raw si besoin OAuth)
     let access_token = {
-        disable_raw_mode()?;
+        // disable_raw_mode()?;
         execute!(
             terminal.backend_mut(),
             LeaveAlternateScreen,
@@ -63,7 +91,7 @@ async fn main() -> Result<()> {
 
         let token_result = config.ensure_valid_token().await;
 
-        enable_raw_mode()?;
+        // enable_raw_mode()?;
         execute!(
             terminal.backend_mut(),
             EnterAlternateScreen,
@@ -74,7 +102,7 @@ async fn main() -> Result<()> {
         match token_result {
             Ok(t) => t,
             Err(e) => {
-                disable_raw_mode()?;
+                // disable_raw_mode()?;
                 execute!(
                     terminal.backend_mut(),
                     LeaveAlternateScreen,
@@ -106,11 +134,9 @@ async fn main() -> Result<()> {
         });
     }
 
-    let tick_rate = Duration::from_millis(100);
-
     loop {
         {
-            let a = app.lock().unwrap();
+            let a = &app.lock().unwrap();
             terminal.draw(|f| ui::render(f, &a))?;
         }
 
@@ -134,6 +160,9 @@ async fn main() -> Result<()> {
                             Some(format!("{} activités supplémentaires chargées", count));
                     }
                 }
+                AppMessage::WeatherLoaded() => {
+                    tracing::info!("weather");
+                }
                 AppMessage::Error(e) => {
                     a.loading = false;
                     a.error = Some(e);
@@ -144,8 +173,11 @@ async fn main() -> Result<()> {
             }
         }
 
+        let tick_rate = Duration::from_millis(100);
         if event::poll(tick_rate)? {
-            if let Event::Key(key) = event::read()? {
+            if let Event::Key(key) = event::read()?
+                && key.kind == KeyEventKind::Press
+            {
                 let mut a = app.lock().unwrap();
                 a.status_msg = None;
 
@@ -177,7 +209,7 @@ async fn main() -> Result<()> {
                 match (&a.screen.clone(), key.code) {
                     (_, KeyCode::Char('q')) => break,
                     (_, KeyCode::Char('c')) if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        break
+                        break;
                     }
                     (_, KeyCode::Char('1')) => a.screen = Screen::List,
                     (_, KeyCode::Char('2')) => a.screen = Screen::Stats,
@@ -204,6 +236,14 @@ async fn main() -> Result<()> {
                     }
                     (Screen::List, KeyCode::Enter) => {
                         if a.selected_activity().is_some() {
+                            let coords = Coords {
+                                lat: 43.493204146990244,
+                                lng: 6.534099590754949,
+                            };
+                            let datetime = Local.with_ymd_and_hms(2026, 5, 31, 9, 30, 00).unwrap();
+
+                            let weather_client = WeatherClient::new();
+                            weather_client.get_weather(coords, datetime);
                             a.screen = Screen::Detail;
                         }
                     }
@@ -238,25 +278,7 @@ async fn main() -> Result<()> {
                         }
                     }
                     (_, KeyCode::Tab) => {
-                        if !a.loading {
-                            a.loading = true;
-                            a.page += 1;
-                            let tx2 = tx.clone();
-                            let token = access_token.clone();
-                            let page = a.page;
-                            tokio::spawn(async move {
-                                let client = StravaClient::new(token);
-                                match client.get_activities(page, 50).await {
-                                    Ok(acts) => {
-                                        let _ =
-                                            tx2.send(AppMessage::ActivitiesAppended(acts)).await;
-                                    }
-                                    Err(e) => {
-                                        let _ = tx2.send(AppMessage::Error(e.to_string())).await;
-                                    }
-                                }
-                            });
-                        }
+                        load_next_page(&mut a, tx.clone(), access_token.clone());
                     }
                     _ => {}
                 }
@@ -273,4 +295,28 @@ async fn main() -> Result<()> {
     terminal.show_cursor()?;
     println!("À bientôt ! 🏃");
     Ok(())
+}
+
+fn load_next_page(app: &mut App, tx: mpsc::Sender<AppMessage>, access_token: String) {
+    if app.loading {
+        return;
+    }
+
+    app.loading = true;
+    app.page += 1;
+
+    let page = app.page;
+
+    tokio::spawn(async move {
+        let client = StravaClient::new(access_token);
+
+        match client.get_activities(page, 50).await {
+            Ok(acts) => {
+                let _ = tx.send(AppMessage::ActivitiesAppended(acts)).await;
+            }
+            Err(e) => {
+                let _ = tx.send(AppMessage::Error(e.to_string())).await;
+            }
+        }
+    });
 }

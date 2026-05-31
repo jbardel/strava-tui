@@ -1,15 +1,15 @@
 [package]
 name = "strava-tui"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [[bin]]
 name = "strava-tui"
 path = "src/main.rs"
 
 [dependencies]
-ratatui = "0.26"
-crossterm = "0.27"
+ratatui = "0.30.0"
+crossterm = "0.29.0"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -21,3 +21,7 @@ tiny_http = "0.12"
 dirs-next = "2"
 hyper = { version = "0.14", features = ["client", "http1"] }
 hyper-rustls = { version = "0.24", features = ["http1", "webpki-tokio"] }
+
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["fmt", "env-filter"] }
+tracing-appender = "0.2.5"
