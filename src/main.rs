@@ -2,6 +2,7 @@ mod activities;
 mod app;
 mod auth;
 mod ui;
+mod event_management;
 
 use activities::StravaClient;
 use anyhow::Result;
@@ -10,7 +11,7 @@ use auth::Config;
 use chrono::{Local, TimeZone};
 use crossterm::{
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers
     },
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
